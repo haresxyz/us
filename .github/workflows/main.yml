@@ -2,7 +2,7 @@ name: Auto USDC Lending
 
 on:
   schedule:
-    - cron: '50 2 * * *' # 09:30 WIB (WIB = UTC+7, cron uses UTC)
+    - cron: '02 3 * * *' # 09:30 WIB (WIB = UTC+7, cron uses UTC)
   workflow_dispatch: # Optional: allows manual run
 
 jobs:
