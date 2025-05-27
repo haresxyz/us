@@ -2,7 +2,7 @@ name: Auto USDC Lending
 
 on:
   schedule:
-    - cron: '15 0 * * *' # uses UTC)
+    - cron: '2 2 * * *' # uses UTC)
   workflow_dispatch: # Optional: allows manual run
 
 jobs:
