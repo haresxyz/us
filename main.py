@@ -1,171 +1,119 @@
-import asyncio
 import json
-import os
+import asyncio
 from web3 import Web3
+from eth_account import Account
+from eth_account.signers.local import LocalAccount
 from dotenv import load_dotenv
-from colorama import init, Fore
+import os
 
-# Init
-init(autoreset=True)
 load_dotenv()
 
-# Env
-rpc_url = os.getenv("RPC_URL")
-private_key = os.getenv("PRIVATE_KEY4")
-usdc_address = os.getenv("USDC_ADDRESS")
-lending_pool_proxy_address = os.getenv("LENDING_POOL_PROXY")
+web3 = Web3(Web3.HTTPProvider(os.getenv("RPC")))
+CHAIN_ID = int(os.getenv("CHAIN_ID"))
 
-# Validasi
-if not all([rpc_url, private_key, usdc_address, lending_pool_proxy_address]):
-    raise ValueError("Missing one or more required environment variables.")
+with open("abi.json") as f:
+    ABI = json.load(f)
 
-# Web3
-w3 = Web3(Web3.HTTPProvider(rpc_url))
-if not w3.is_connected():
-    raise ConnectionError("❌ Failed to connect to RPC")
-print(Fore.GREEN + "✅ Connected to RPC")
+TOKEN_ADDRESS = Web3.to_checksum_address(os.getenv("TOKEN"))
+LENDING_ADDRESS = Web3.to_checksum_address(os.getenv("LENDING"))
 
-# Wallet
-wallet = w3.eth.account.from_key(private_key)
+USDC_DECIMALS = 6
+AMOUNT = int(float(os.getenv("AMOUNT")) * (10 ** USDC_DECIMALS))
 
-# ABI
-with open("abi_usdc.json") as f:
-    usdc_abi = json.load(f)
-with open("abi_lending.json") as f:
-    lending_abi = json.load(f)
+with open("wallets.json") as f:
+    WALLETS = json.load(f)
 
-# Contract
-usdc = w3.eth.contract(address=usdc_address, abi=usdc_abi)
-lending = w3.eth.contract(address=lending_pool_proxy_address, abi=lending_abi)
-
-# Constants
-GAS_PRICE = w3.to_wei(0.018, "gwei")
-AMOUNT = w3.to_wei(1001.1, "mwei")  # 1001.1 USDC (6 decimals)
-ON_BEHALF_OF = wallet.address
-REFERRAL_CODE = 0
-TO = wallet.address
-
-# File JSON
-STATUS_FILE = "transaction_status.json"
-
-# Load Status
-def load_tx_status():
-    if os.path.exists(STATUS_FILE):
-        with open(STATUS_FILE) as f:
-            return json.load(f)
+def build_tx(account: LocalAccount, to, data):
     return {
-        "tx_index": 0,
-        "nonce": w3.eth.get_transaction_count(wallet.address, 'pending'),
-        "deposit_count": 1,
-        "withdraw_count": 1
+        'from': account.address,
+        'to': to,
+        'data': data,
+        'nonce': web3.eth.get_transaction_count(account.address),
+        'gas': 150000,
+        'gasPrice': web3.eth.gas_price,
+        'chainId': CHAIN_ID
     }
 
-# Save Status
-def save_tx_status(data):
-    with open(STATUS_FILE, "w") as f:
-        json.dump(data, f)
-
-# Log
-def log(tx_index, action, tx_hash, status, count):
-    print(Fore.CYAN + "-" * 40)
-    print(Fore.YELLOW + f"[TX {tx_index+1}] {action} #{count} - 1000 USDC")
-    print(Fore.WHITE + f"Hash    : {tx_hash}")
-    print((Fore.GREEN if status == 1 else Fore.RED) + f"Status  : {'Success' if status == 1 else 'Failed'}")
-    print(Fore.CYAN + "-" * 40)
-
-# Deposit
-async def deposit(nonce, tx_index, count):
+async def try_deposit_then_withdraw(account, lending, token):
     try:
-        gas_estimate = lending.functions.deposit(usdc_address, AMOUNT, ON_BEHALF_OF, REFERRAL_CODE).estimate_gas({'from': wallet.address})
-        tx = lending.functions.deposit(usdc_address, AMOUNT, ON_BEHALF_OF, REFERRAL_CODE).build_transaction({
-            'from': wallet.address,
-            'nonce': nonce,
-            'gas': int(gas_estimate * 1.2),
-            'maxFeePerGas': GAS_PRICE,
-            'maxPriorityFeePerGas': GAS_PRICE,
-        })
-        signed = wallet.sign_transaction(tx)
-        tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
-        log(tx_index, "Deposit", w3.to_hex(tx_hash), receipt.status, count)
-        return receipt.status
-    except Exception as e:
-        print(Fore.RED + f"Deposit Error: {e}")
-        return 0
+        tx_data = lending.encodeABI(fn_name="deposit", args=[TOKEN_ADDRESS, AMOUNT])
+        tx = build_tx(account, LENDING_ADDRESS, tx_data)
+        signed_tx = account.sign_transaction(tx)
+        tx_hash = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
+        receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
 
-# Withdraw
-async def withdraw(nonce, tx_index, count):
-    try:
-        gas_estimate = lending.functions.withdraw(usdc_address, AMOUNT, TO).estimate_gas({'from': wallet.address})
-        tx = lending.functions.withdraw(usdc_address, AMOUNT, TO).build_transaction({
-            'from': wallet.address,
-            'nonce': nonce,
-            'gas': int(gas_estimate * 1.2),
-            'maxFeePerGas': GAS_PRICE,
-            'maxPriorityFeePerGas': GAS_PRICE,
-        })
-        signed = wallet.sign_transaction(tx)
-        tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
-        log(tx_index, "Withdraw", w3.to_hex(tx_hash), receipt.status, count)
-        return receipt.status
-    except Exception as e:
-        print(Fore.RED + f"Withdraw Error: {e}")
-        return 0
-
-# Main
-async def main():
-    print(Fore.MAGENTA + "🚀 Starting 110 transactions...")
-    data = load_tx_status()
-    nonce = data["nonce"]
-    tx_index = data["tx_index"]
-    deposit_count = data["deposit_count"]
-    withdraw_count = data["withdraw_count"]
-
-    while tx_index < 110:
-        # Tentukan jenis transaksi berdasarkan tx_index genap/ganjil
-        if tx_index % 2 == 0:
-            # Prioritas deposit, jika gagal coba withdraw
-            status = await deposit(nonce, tx_index, deposit_count)
-            nonce += 1
-            if not status:
-                status = await withdraw(nonce, tx_index, withdraw_count)
-                nonce += 1
-                if status:
-                    withdraw_count += 1
-                    tx_index += 1
-            else:
-                deposit_count += 1
-                tx_index += 1
+        if receipt.status == 1:
+            print(f"✅ Deposit Success: {account.address}")
+            return "deposit"
         else:
-            # Prioritas withdraw, jika gagal coba deposit
-            status = await withdraw(nonce, tx_index, withdraw_count)
-            nonce += 1
-            if not status:
-                status = await deposit(nonce, tx_index, deposit_count)
-                nonce += 1
-                if status:
-                    deposit_count += 1
-                    tx_index += 1
+            raise Exception("Deposit failed")
+    except Exception as e:
+        print(f"Deposit Error: {e}")
+        try:
+            tx_data = lending.encodeABI(fn_name="withdraw", args=[TOKEN_ADDRESS, AMOUNT])
+            tx = build_tx(account, LENDING_ADDRESS, tx_data)
+            signed_tx = account.sign_transaction(tx)
+            tx_hash = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
+
+            if receipt.status == 1:
+                print(f"✅ Withdraw Success (after deposit fail): {account.address}")
+                return "withdraw"
             else:
-                withdraw_count += 1
-                tx_index += 1
+                raise Exception("Withdraw after deposit fail also failed")
+        except Exception as e:
+            print(f"Withdraw Error: {e}")
+            return None
 
-        # Simpan status hanya jika transaksi berhasil
+async def try_withdraw_then_deposit(account, lending, token):
+    try:
+        tx_data = lending.encodeABI(fn_name="withdraw", args=[TOKEN_ADDRESS, AMOUNT])
+        tx = build_tx(account, LENDING_ADDRESS, tx_data)
+        signed_tx = account.sign_transaction(tx)
+        tx_hash = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
+        receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
+
+        if receipt.status == 1:
+            print(f"✅ Withdraw Success: {account.address}")
+            return "withdraw"
+        else:
+            raise Exception("Withdraw failed")
+    except Exception as e:
+        print(f"Withdraw Error: {e}")
+        try:
+            tx_data = lending.encodeABI(fn_name="deposit", args=[TOKEN_ADDRESS, AMOUNT])
+            tx = build_tx(account, LENDING_ADDRESS, tx_data)
+            signed_tx = account.sign_transaction(tx)
+            tx_hash = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
+
+            if receipt.status == 1:
+                print(f"✅ Deposit Success (after withdraw fail): {account.address}")
+                return "deposit"
+            else:
+                raise Exception("Deposit after withdraw fail also failed")
+        except Exception as e:
+            print(f"Deposit Error: {e}")
+            return None
+
+async def main():
+    for entry in WALLETS:
+        key = entry["key"]
+        mode = entry["mode"]
+        account = Account.from_key(key)
+        lending = web3.eth.contract(address=LENDING_ADDRESS, abi=ABI)
+
+        status = None
+        if mode == "deposit":
+            status = await try_deposit_then_withdraw(account, lending, TOKEN_ADDRESS)
+        else:
+            status = await try_withdraw_then_deposit(account, lending, TOKEN_ADDRESS)
+
         if status:
-            save_tx_status({
-                "tx_index": tx_index,
-                "nonce": nonce,
-                "deposit_count": deposit_count,
-                "withdraw_count": withdraw_count
-            })
+            entry["mode"] = "withdraw" if status == "deposit" else "deposit"
 
-    # Hapus file jika sudah selesai
-    if os.path.exists(STATUS_FILE):
-        os.remove(STATUS_FILE)
-        print(Fore.RED + "🗑️ transaction_status.json deleted after 110 TXs.")
+    with open("wallets.json", "w") as f:
+        json.dump(WALLETS, f, indent=2)
 
-    print(Fore.GREEN + "✅ Semua transaksi selesai!")
-
-# Run
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
