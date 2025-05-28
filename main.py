@@ -96,7 +96,7 @@ def load_tx_count():
         }
 
 # Deposit function
-async def deposit_usdc(tx_number, deposit_counter, deposit_count):
+async def deposit_usdc(tx_number, deposit_counter, deposit_count, withdraw_counter, total_tx, withdraw_count):
     try:
         gas_estimate = lending_pool_contract.functions.deposit(
             usdc_address, AMOUNT, ON_BEHALF_OF, REFERRAL_CODE
@@ -119,13 +119,17 @@ async def deposit_usdc(tx_number, deposit_counter, deposit_count):
 
         if tx_receipt.status == 1:
             deposit_counter += 1
-        return deposit_counter
+            deposit_count += 1
+            total_tx += 1
+            save_tx_count(deposit_counter, withdraw_counter, total_tx, deposit_count, withdraw_count)
+        return deposit_counter, deposit_count, total_tx
     except Exception as e:
         print(f"Deposit Error: {e}")
-        return deposit_counter
+        log_transaction(tx_number, "Deposit", "N/A", 0, deposit_count=deposit_count)
+        return deposit_counter, deposit_count, total_tx
 
 # Withdraw function
-async def withdraw_usdc(tx_number, withdraw_counter, withdraw_count):
+async def withdraw_usdc(tx_number, withdraw_counter, withdraw_count, deposit_counter, total_tx, deposit_count):
     try:
         gas_estimate = lending_pool_contract.functions.withdraw(
             usdc_address, AMOUNT, TO
@@ -148,10 +152,14 @@ async def withdraw_usdc(tx_number, withdraw_counter, withdraw_count):
 
         if tx_receipt.status == 1:
             withdraw_counter += 1
-        return withdraw_counter
+            withdraw_count += 1
+            total_tx += 1
+            save_tx_count(deposit_counter, withdraw_counter, total_tx, deposit_count, withdraw_count)
+        return withdraw_counter, withdraw_count, total_tx
     except Exception as e:
         print(f"Withdraw Error: {e}")
-        return withdraw_counter
+        log_transaction(tx_number, "Withdraw", "N/A", 0, withdraw_count=withdraw_count)
+        return withdraw_counter, withdraw_count, total_tx
 
 # Main function
 async def main():
@@ -164,29 +172,26 @@ async def main():
     deposit_count = tx_data["deposit_count"]
     withdraw_count = tx_data["withdraw_count"]
 
-    for i in range(total_tx, 111):
-        if i % 2 == 0:
-            deposit_counter = await deposit_usdc(i + 1, deposit_counter, deposit_count)
-            deposit_count += 1
+    while total_tx < 111:
+        if total_tx % 2 == 0:
+            deposit_counter, deposit_count, total_tx = await deposit_usdc(
+                total_tx + 1, deposit_counter, deposit_count, withdraw_counter, total_tx, withdraw_count
+            )
         else:
-            withdraw_counter = await withdraw_usdc(i + 1, withdraw_counter, withdraw_count)
-            withdraw_count += 1
-
-        total_tx += 1
-        save_tx_count(deposit_counter, withdraw_counter, total_tx, deposit_count, withdraw_count)
+            withdraw_counter, withdraw_count, total_tx = await withdraw_usdc(
+                total_tx + 1, withdraw_counter, withdraw_count, deposit_counter, total_tx, deposit_count
+            )
 
         # If 110th transaction was withdraw, add 1 extra deposit
         if total_tx == 111 and total_tx % 2 != 0:
             print(Fore.RED + "⚠️ TX #110 was Withdraw. Adding extra Deposit...")
-            deposit_counter = await deposit_usdc(total_tx + 1, deposit_counter, deposit_count)
-            deposit_count += 1
-            total_tx += 1
-            save_tx_count(deposit_counter, withdraw_counter, total_tx, deposit_count, withdraw_count)
+            deposit_counter, deposit_count, total_tx = await deposit_usdc(
+                total_tx + 1, deposit_counter, deposit_count, withdraw_counter, total_tx, withdraw_count
+            )
 
-        # Remove status file when done
-        if total_tx >= 111:
-            os.remove("transaction_status.json")
-            print(Fore.RED + "🗑️ transaction_status.json deleted after 111 TXs.")
+    if total_tx >= 111:
+        os.remove("transaction_status.json")
+        print(Fore.RED + "🗑️ transaction_status.json deleted after 111 TXs.")
 
     print(Fore.GREEN + "✅ All transactions completed!")
 
