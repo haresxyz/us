@@ -11,52 +11,41 @@ init(autoreset=True)
 # Load environment variables
 load_dotenv()
 
-# Load from environment
 rpc_url = os.getenv("RPC_URL")
 private_key = os.getenv("PRIVATE_KEY4")
 usdc_address = os.getenv("USDC_ADDRESS")
 lending_pool_proxy_address = os.getenv("LENDING_POOL_PROXY")
 
-# Check essential variables
 if not all([rpc_url, private_key, usdc_address, lending_pool_proxy_address]):
     raise ValueError("Missing one or more required environment variables.")
 
-# Configure RPC
 provider = Web3.HTTPProvider(rpc_url)
 w3 = Web3(provider)
 
-# Check RPC connection
-if w3.is_connected():
-    print(Fore.GREEN + "✅ Connected to RPC successfully!")
+if not w3.is_connected():
+    raise ConnectionError("Failed to connect to RPC")
 else:
-    raise ConnectionError("❌ Failed to connect to RPC")
+    print(Fore.GREEN + "✅ Connected to RPC successfully!")
 
-# Load wallet
 wallet = w3.eth.account.from_key(private_key)
 
-# Load ABI files
 with open("abi_usdc.json") as f:
     usdc_abi = json.load(f)
-
 with open("abi_lending.json") as f:
     lending_pool_proxy_abi = json.load(f)
 
-# Contract instances
 usdc_contract = w3.eth.contract(address=usdc_address, abi=usdc_abi)
 lending_pool_contract = w3.eth.contract(address=lending_pool_proxy_address, abi=lending_pool_proxy_abi)
 
-# Transaction parameters
 GAS_PRICE = w3.to_wei(0.018, "gwei")  # 0.018 Gwei
 AMOUNT = w3.to_wei(1001.1, "mwei")    # 1001.1 USDC (6 decimals)
 ON_BEHALF_OF = wallet.address
 REFERRAL_CODE = 0
 TO = wallet.address
 
-# Transaction logger
 def log_transaction(tx_number, action, tx_hash, status, deposit_count=None, withdraw_count=None):
     status_color = Fore.GREEN if status == 1 else Fore.RED
     status_text = 'Success' if status == 1 else 'Failed'
-
     print(Fore.CYAN + "-" * 40)
     if deposit_count is not None:
         print(Fore.YELLOW + f"[TX {tx_number}] {action} #{deposit_count} - 1000 USDC")
@@ -68,7 +57,6 @@ def log_transaction(tx_number, action, tx_hash, status, deposit_count=None, with
     print(status_color + f"Status  : {status_text}")
     print(Fore.CYAN + "-" * 40 + "\n")
 
-# Save transaction counters
 def save_tx_count(deposit_counter, withdraw_counter, total_tx, deposit_count, withdraw_count):
     data = {
         "deposit_counter": deposit_counter,
@@ -80,7 +68,6 @@ def save_tx_count(deposit_counter, withdraw_counter, total_tx, deposit_count, wi
     with open("transaction_status.json", "w") as f:
         json.dump(data, f)
 
-# Load previous transaction counters
 def load_tx_count():
     if os.path.exists("transaction_status.json"):
         with open("transaction_status.json", "r") as f:
@@ -94,7 +81,6 @@ def load_tx_count():
             "withdraw_count": 1
         }
 
-# Deposit function with manual nonce handling
 async def deposit_usdc(tx_number, deposit_counter, deposit_count, nonce):
     try:
         gas_estimate = lending_pool_contract.functions.deposit(
@@ -124,7 +110,6 @@ async def deposit_usdc(tx_number, deposit_counter, deposit_count, nonce):
         print(Fore.RED + f"Deposit Error: {e}")
         return deposit_counter, nonce
 
-# Withdraw function with manual nonce handling
 async def withdraw_usdc(tx_number, withdraw_counter, withdraw_count, nonce):
     try:
         gas_estimate = lending_pool_contract.functions.withdraw(
@@ -154,7 +139,6 @@ async def withdraw_usdc(tx_number, withdraw_counter, withdraw_count, nonce):
         print(Fore.RED + f"Withdraw Error: {e}")
         return withdraw_counter, nonce
 
-# Main async loop
 async def main():
     print("🚀 Starting transaction loop...")
     tx_data = load_tx_count()
@@ -165,10 +149,9 @@ async def main():
     deposit_count = tx_data["deposit_count"]
     withdraw_count = tx_data["withdraw_count"]
 
-    # Ambil nonce awal sekali
     nonce = w3.eth.get_transaction_count(wallet.address)
 
-    while total_tx < 111:
+    while total_tx < 110:
         if total_tx % 2 == 0:
             deposit_counter, nonce = await deposit_usdc(total_tx + 1, deposit_counter, deposit_count, nonce)
             deposit_count += 1
@@ -179,21 +162,11 @@ async def main():
         total_tx += 1
         save_tx_count(deposit_counter, withdraw_counter, total_tx, deposit_count, withdraw_count)
 
-        # Jika tx ke-110 adalah withdraw (total_tx 110 berarti index 109), tambah extra deposit
-        if total_tx == 110 and total_tx % 2 != 0:
-            print(Fore.RED + "⚠️ TX #110 was Withdraw. Adding extra Deposit...")
-            deposit_counter, nonce = await deposit_usdc(total_tx + 1, deposit_counter, deposit_count, nonce)
-            deposit_count += 1
-            total_tx += 1
-            save_tx_count(deposit_counter, withdraw_counter, total_tx, deposit_count, withdraw_count)
-
-    # Hapus file status jika sudah selesai semua
     if os.path.exists("transaction_status.json"):
         os.remove("transaction_status.json")
-        print(Fore.RED + "🗑️ transaction_status.json deleted after 111 TXs.")
+        print(Fore.RED + "🗑️ transaction_status.json deleted after 110 TXs.")
 
-    print(Fore.GREEN + "✅ All transactions completed!")
+    print(Fore.GREEN + "✅ All 110 transactions completed!")
 
-# Run main
 if __name__ == "__main__":
     asyncio.run(main())
