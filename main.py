@@ -94,8 +94,8 @@ def load_tx_count():
             "withdraw_count": 1
         }
 
-# Deposit function
-async def deposit_usdc(tx_number, deposit_counter, deposit_count):
+# Deposit function with manual nonce handling
+async def deposit_usdc(tx_number, deposit_counter, deposit_count, nonce):
     try:
         gas_estimate = lending_pool_contract.functions.deposit(
             usdc_address, AMOUNT, ON_BEHALF_OF, REFERRAL_CODE
@@ -108,25 +108,24 @@ async def deposit_usdc(tx_number, deposit_counter, deposit_count):
             'gas': int(gas_estimate * 1.2),
             'maxFeePerGas': GAS_PRICE,
             'maxPriorityFeePerGas': GAS_PRICE,
-            'nonce': w3.eth.get_transaction_count(wallet.address),
+            'nonce': nonce,
         })
 
         signed_tx = wallet.sign_transaction(tx)
         tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+        print(Fore.BLUE + f"Waiting for Deposit TX {tx_number} confirmation...")
         tx_receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
         log_transaction(tx_number, "Deposit", w3.to_hex(tx_hash), tx_receipt.status, deposit_count=deposit_count)
 
         if tx_receipt.status == 1:
             deposit_counter += 1
-            return deposit_counter, True
-        else:
-            return deposit_counter, False
+        return deposit_counter, nonce + 1
     except Exception as e:
-        print(f"Deposit Error: {e}")
-        return deposit_counter, False
+        print(Fore.RED + f"Deposit Error: {e}")
+        return deposit_counter, nonce
 
-# Withdraw function
-async def withdraw_usdc(tx_number, withdraw_counter, withdraw_count):
+# Withdraw function with manual nonce handling
+async def withdraw_usdc(tx_number, withdraw_counter, withdraw_count, nonce):
     try:
         gas_estimate = lending_pool_contract.functions.withdraw(
             usdc_address, AMOUNT, TO
@@ -139,24 +138,23 @@ async def withdraw_usdc(tx_number, withdraw_counter, withdraw_count):
             'gas': int(gas_estimate * 1.2),
             'maxFeePerGas': GAS_PRICE,
             'maxPriorityFeePerGas': GAS_PRICE,
-            'nonce': w3.eth.get_transaction_count(wallet.address),
+            'nonce': nonce,
         })
 
         signed_tx = wallet.sign_transaction(tx)
         tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+        print(Fore.BLUE + f"Waiting for Withdraw TX {tx_number} confirmation...")
         tx_receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
         log_transaction(tx_number, "Withdraw", w3.to_hex(tx_hash), tx_receipt.status, withdraw_count=withdraw_count)
 
         if tx_receipt.status == 1:
             withdraw_counter += 1
-            return withdraw_counter, True
-        else:
-            return withdraw_counter, False
+        return withdraw_counter, nonce + 1
     except Exception as e:
-        print(f"Withdraw Error: {e}")
-        return withdraw_counter, False
+        print(Fore.RED + f"Withdraw Error: {e}")
+        return withdraw_counter, nonce
 
-# Main function
+# Main async loop
 async def main():
     print("🚀 Starting transaction loop...")
     tx_data = load_tx_count()
@@ -167,33 +165,35 @@ async def main():
     deposit_count = tx_data["deposit_count"]
     withdraw_count = tx_data["withdraw_count"]
 
-    while total_tx < 110:
-        if total_tx % 2 == 0:
-            deposit_counter, success = await deposit_usdc(total_tx + 1, deposit_counter, deposit_count)
-            if success:
-                deposit_count += 1
-                total_tx += 1
-                save_tx_count(deposit_counter, withdraw_counter, total_tx, deposit_count, withdraw_count)
-            else:
-                print(Fore.RED + f"Deposit TX #{total_tx + 1} failed, retrying in 3s...")
-                await asyncio.sleep(3)
-                continue
-        else:
-            withdraw_counter, success = await withdraw_usdc(total_tx + 1, withdraw_counter, withdraw_count)
-            if success:
-                withdraw_count += 1
-                total_tx += 1
-                save_tx_count(deposit_counter, withdraw_counter, total_tx, deposit_count, withdraw_count)
-            else:
-                print(Fore.RED + f"Withdraw TX #{total_tx + 1} failed, retrying in 3s...")
-                await asyncio.sleep(3)
-                continue
+    # Ambil nonce awal sekali
+    nonce = w3.eth.get_transaction_count(wallet.address)
 
+    while total_tx < 111:
+        if total_tx % 2 == 0:
+            deposit_counter, nonce = await deposit_usdc(total_tx + 1, deposit_counter, deposit_count, nonce)
+            deposit_count += 1
+        else:
+            withdraw_counter, nonce = await withdraw_usdc(total_tx + 1, withdraw_counter, withdraw_count, nonce)
+            withdraw_count += 1
+
+        total_tx += 1
+        save_tx_count(deposit_counter, withdraw_counter, total_tx, deposit_count, withdraw_count)
+
+        # Jika tx ke-110 adalah withdraw (total_tx 110 berarti index 109), tambah extra deposit
+        if total_tx == 110 and total_tx % 2 != 0:
+            print(Fore.RED + "⚠️ TX #110 was Withdraw. Adding extra Deposit...")
+            deposit_counter, nonce = await deposit_usdc(total_tx + 1, deposit_counter, deposit_count, nonce)
+            deposit_count += 1
+            total_tx += 1
+            save_tx_count(deposit_counter, withdraw_counter, total_tx, deposit_count, withdraw_count)
+
+    # Hapus file status jika sudah selesai semua
     if os.path.exists("transaction_status.json"):
         os.remove("transaction_status.json")
-        print(Fore.RED + "🗑️ transaction_status.json deleted after 110 TXs.")
+        print(Fore.RED + "🗑️ transaction_status.json deleted after 111 TXs.")
 
     print(Fore.GREEN + "✅ All transactions completed!")
 
-# Run the main function
-asyncio.run(main())
+# Run main
+if __name__ == "__main__":
+    asyncio.run(main())
