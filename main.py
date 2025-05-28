@@ -52,17 +52,12 @@ STATUS_FILE = "transaction_status.json"
 def load_tx_status():
     if os.path.exists(STATUS_FILE):
         with open(STATUS_FILE) as f:
-            data = json.load(f)
-            # pastikan key next_action ada, kalau tidak default ke deposit
-            if "next_action" not in data:
-                data["next_action"] = "deposit"
-            return data
+            return json.load(f)
     return {
         "tx_index": 0,
         "nonce": w3.eth.get_transaction_count(wallet.address, 'pending'),
         "deposit_count": 1,
-        "withdraw_count": 1,
-        "next_action": "deposit"
+        "withdraw_count": 1
     }
 
 # Save Status
@@ -73,7 +68,7 @@ def save_tx_status(data):
 # Log
 def log(tx_index, action, tx_hash, status, count):
     print(Fore.CYAN + "-" * 40)
-    print(Fore.YELLOW + f"[TX {tx_index+1}] {action.capitalize()} #{count} - 1000 USDC")
+    print(Fore.YELLOW + f"[TX {tx_index+1}] {action} #{count} - 1000 USDC")
     print(Fore.WHITE + f"Hash    : {tx_hash}")
     print((Fore.GREEN if status == 1 else Fore.RED) + f"Status  : {'Success' if status == 1 else 'Failed'}")
     print(Fore.CYAN + "-" * 40)
@@ -92,7 +87,7 @@ async def deposit(nonce, tx_index, count):
         signed = wallet.sign_transaction(tx)
         tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
-        log(tx_index, "deposit", w3.to_hex(tx_hash), receipt.status, count)
+        log(tx_index, "Deposit", w3.to_hex(tx_hash), receipt.status, count)
         return receipt.status
     except Exception as e:
         print(Fore.RED + f"Deposit Error: {e}")
@@ -112,7 +107,7 @@ async def withdraw(nonce, tx_index, count):
         signed = wallet.sign_transaction(tx)
         tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
-        log(tx_index, "withdraw", w3.to_hex(tx_hash), receipt.status, count)
+        log(tx_index, "Withdraw", w3.to_hex(tx_hash), receipt.status, count)
         return receipt.status
     except Exception as e:
         print(Fore.RED + f"Withdraw Error: {e}")
@@ -126,54 +121,44 @@ async def main():
     tx_index = data["tx_index"]
     deposit_count = data["deposit_count"]
     withdraw_count = data["withdraw_count"]
-    action = data.get("next_action", "deposit")
 
     while tx_index < 110:
-        if action == "deposit":
+        # Tentukan jenis transaksi berdasarkan tx_index genap/ganjil
+        if tx_index % 2 == 0:
+            # Prioritas deposit, jika gagal coba withdraw
             status = await deposit(nonce, tx_index, deposit_count)
-            if status:
-                deposit_count += 1
-                action = "withdraw"
+            nonce += 1
+            if not status:
+                status = await withdraw(nonce, tx_index, withdraw_count)
                 nonce += 1
-                tx_index += 1
-            else:
-                print(Fore.YELLOW + "Deposit gagal, coba Withdraw...")
-                status_wd = await withdraw(nonce, tx_index, withdraw_count)
-                if status_wd:
+                if status:
                     withdraw_count += 1
-                    action = "deposit"
-                    nonce += 1
                     tx_index += 1
-                else:
-                    print(Fore.RED + "Withdraw juga gagal, ulangi transaksi yang sama.")
-                    # ulangi tanpa increment
-        else:
-            status = await withdraw(nonce, tx_index, withdraw_count)
-            if status:
-                withdraw_count += 1
-                action = "deposit"
-                nonce += 1
-                tx_index += 1
             else:
-                print(Fore.YELLOW + "Withdraw gagal, coba Deposit...")
-                status_dp = await deposit(nonce, tx_index, deposit_count)
-                if status_dp:
+                deposit_count += 1
+                tx_index += 1
+        else:
+            # Prioritas withdraw, jika gagal coba deposit
+            status = await withdraw(nonce, tx_index, withdraw_count)
+            nonce += 1
+            if not status:
+                status = await deposit(nonce, tx_index, deposit_count)
+                nonce += 1
+                if status:
                     deposit_count += 1
-                    action = "withdraw"
-                    nonce += 1
                     tx_index += 1
-                else:
-                    print(Fore.RED + "Deposit juga gagal, ulangi transaksi yang sama.")
-                    # ulangi tanpa increment
+            else:
+                withdraw_count += 1
+                tx_index += 1
 
-        # Simpan status hanya kalau berhasil transaksi
-        save_tx_status({
-            "tx_index": tx_index,
-            "nonce": nonce,
-            "deposit_count": deposit_count,
-            "withdraw_count": withdraw_count,
-            "next_action": action
-        })
+        # Simpan status hanya jika transaksi berhasil
+        if status:
+            save_tx_status({
+                "tx_index": tx_index,
+                "nonce": nonce,
+                "deposit_count": deposit_count,
+                "withdraw_count": withdraw_count
+            })
 
     # Hapus file jika sudah selesai
     if os.path.exists(STATUS_FILE):
