@@ -4,7 +4,6 @@ import os
 from web3 import Web3
 from dotenv import load_dotenv
 from colorama import init, Fore
-import time
 
 # Initialize colorama
 init(autoreset=True)
@@ -48,7 +47,7 @@ lending_pool_contract = w3.eth.contract(address=lending_pool_proxy_address, abi=
 
 # Transaction parameters
 GAS_PRICE = w3.to_wei(0.018, "gwei")  # 0.018 Gwei
-AMOUNT = w3.to_wei(1001.1, "mwei")    # 1000 USDC (6 decimals)
+AMOUNT = w3.to_wei(1001.1, "mwei")    # 1001.1 USDC (6 decimals)
 ON_BEHALF_OF = wallet.address
 REFERRAL_CODE = 0
 TO = wallet.address
@@ -119,10 +118,12 @@ async def deposit_usdc(tx_number, deposit_counter, deposit_count):
 
         if tx_receipt.status == 1:
             deposit_counter += 1
-        return deposit_counter
+            return deposit_counter, True
+        else:
+            return deposit_counter, False
     except Exception as e:
         print(f"Deposit Error: {e}")
-        return deposit_counter
+        return deposit_counter, False
 
 # Withdraw function
 async def withdraw_usdc(tx_number, withdraw_counter, withdraw_count):
@@ -148,10 +149,12 @@ async def withdraw_usdc(tx_number, withdraw_counter, withdraw_count):
 
         if tx_receipt.status == 1:
             withdraw_counter += 1
-        return withdraw_counter
+            return withdraw_counter, True
+        else:
+            return withdraw_counter, False
     except Exception as e:
         print(f"Withdraw Error: {e}")
-        return withdraw_counter
+        return withdraw_counter, False
 
 # Main function
 async def main():
@@ -164,29 +167,31 @@ async def main():
     deposit_count = tx_data["deposit_count"]
     withdraw_count = tx_data["withdraw_count"]
 
-    for i in range(total_tx, 111):
-        if i % 2 == 0:
-            deposit_counter = await deposit_usdc(i + 1, deposit_counter, deposit_count)
-            deposit_count += 1
+    while total_tx < 110:
+        if total_tx % 2 == 0:
+            deposit_counter, success = await deposit_usdc(total_tx + 1, deposit_counter, deposit_count)
+            if success:
+                deposit_count += 1
+                total_tx += 1
+                save_tx_count(deposit_counter, withdraw_counter, total_tx, deposit_count, withdraw_count)
+            else:
+                print(Fore.RED + f"Deposit TX #{total_tx + 1} failed, retrying in 3s...")
+                await asyncio.sleep(3)
+                continue
         else:
-            withdraw_counter = await withdraw_usdc(i + 1, withdraw_counter, withdraw_count)
-            withdraw_count += 1
+            withdraw_counter, success = await withdraw_usdc(total_tx + 1, withdraw_counter, withdraw_count)
+            if success:
+                withdraw_count += 1
+                total_tx += 1
+                save_tx_count(deposit_counter, withdraw_counter, total_tx, deposit_count, withdraw_count)
+            else:
+                print(Fore.RED + f"Withdraw TX #{total_tx + 1} failed, retrying in 3s...")
+                await asyncio.sleep(3)
+                continue
 
-        total_tx += 1
-        save_tx_count(deposit_counter, withdraw_counter, total_tx, deposit_count, withdraw_count)
-
-        # If 110th transaction was withdraw, add 1 extra deposit
-        if total_tx == 111 and total_tx % 2 != 0:
-            print(Fore.RED + "⚠️ TX #110 was Withdraw. Adding extra Deposit...")
-            deposit_counter = await deposit_usdc(total_tx + 1, deposit_counter, deposit_count)
-            deposit_count += 1
-            total_tx += 1
-            save_tx_count(deposit_counter, withdraw_counter, total_tx, deposit_count, withdraw_count)
-
-        # Remove status file when done
-        if total_tx >= 111:
-            os.remove("transaction_status.json")
-            print(Fore.RED + "🗑️ transaction_status.json deleted after 111 TXs.")
+    if os.path.exists("transaction_status.json"):
+        os.remove("transaction_status.json")
+        print(Fore.RED + "🗑️ transaction_status.json deleted after 110 TXs.")
 
     print(Fore.GREEN + "✅ All transactions completed!")
 
