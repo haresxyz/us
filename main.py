@@ -81,6 +81,17 @@ def load_tx_count():
             "withdraw_count": 1
         }
 
+async def wait_until_confirmed(tx_hash, check_interval=5):
+    print(Fore.MAGENTA + f"⏳ Waiting for confirmation of transaction {w3.to_hex(tx_hash)} ...")
+    while True:
+        try:
+            receipt = w3.eth.get_transaction_receipt(tx_hash)
+            if receipt is not None and receipt.status is not None:
+                return receipt
+        except:
+            pass
+        await asyncio.sleep(check_interval)
+
 async def deposit_usdc(tx_number, deposit_counter, deposit_count, nonce):
     try:
         gas_estimate = lending_pool_contract.functions.deposit(
@@ -99,8 +110,9 @@ async def deposit_usdc(tx_number, deposit_counter, deposit_count, nonce):
 
         signed_tx = wallet.sign_transaction(tx)
         tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-        print(Fore.BLUE + f"Waiting for Deposit TX {tx_number} confirmation...")
-        tx_receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+
+        print(Fore.BLUE + f"Waiting for confirmation of Deposit TX {tx_number}...")
+        tx_receipt = await wait_until_confirmed(tx_hash)
         log_transaction(tx_number, "Deposit", w3.to_hex(tx_hash), tx_receipt.status, deposit_count=deposit_count)
 
         if tx_receipt.status == 1:
@@ -128,8 +140,9 @@ async def withdraw_usdc(tx_number, withdraw_counter, withdraw_count, nonce):
 
         signed_tx = wallet.sign_transaction(tx)
         tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-        print(Fore.BLUE + f"Waiting for Withdraw TX {tx_number} confirmation...")
-        tx_receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+
+        print(Fore.BLUE + f"Waiting for confirmation of Withdraw TX {tx_number}...")
+        tx_receipt = await wait_until_confirmed(tx_hash)
         log_transaction(tx_number, "Withdraw", w3.to_hex(tx_hash), tx_receipt.status, withdraw_count=withdraw_count)
 
         if tx_receipt.status == 1:
