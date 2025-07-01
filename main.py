@@ -179,7 +179,7 @@ async def main():
         os.remove("transaction_status.json")
         print(Fore.RED + "🗑️ transaction_status.json deleted after 110 TXs.")
 
-    print(Fore.GREEN + "✅ All 110 transactions completed!")
+    print(Fore.GREEN + "✅ All 150 transactions completed!")
 
 if __name__ == "__main__":
     asyncio.run(main())
