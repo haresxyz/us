@@ -164,7 +164,7 @@ async def main():
 
     nonce = w3.eth.get_transaction_count(wallet.address)
 
-    while total_tx < 150:
+    while total_tx < 146:
         if total_tx % 2 == 0:
             deposit_counter, nonce = await deposit_usdc(total_tx + 1, deposit_counter, deposit_count, nonce)
             deposit_count += 1
@@ -179,7 +179,7 @@ async def main():
         os.remove("transaction_status.json")
         print(Fore.RED + "🗑️ transaction_status.json deleted after 110 TXs.")
 
-    print(Fore.GREEN + "✅ All 150 transactions completed!")
+    print(Fore.GREEN + "✅ All 146 transactions completed!")
 
 if __name__ == "__main__":
     asyncio.run(main())
