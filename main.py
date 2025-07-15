@@ -177,9 +177,9 @@ async def main():
 
     if os.path.exists("transaction_status.json"):
         os.remove("transaction_status.json")
-        print(Fore.RED + "🗑️ transaction_status.json deleted after 110 TXs.")
+        print(Fore.RED + "🗑️ transaction_status.json deleted after 158 TXs.")
 
-    print(Fore.GREEN + "✅ All 146 transactions completed!")
+    print(Fore.GREEN + "✅ All 158 transactions completed!")
 
 if __name__ == "__main__":
     asyncio.run(main())
