@@ -164,7 +164,7 @@ async def main():
 
     nonce = w3.eth.get_transaction_count(wallet.address)
 
-    while total_tx < 146:
+    while total_tx < 172:
         if total_tx % 2 == 0:
             deposit_counter, nonce = await deposit_usdc(total_tx + 1, deposit_counter, deposit_count, nonce)
             deposit_count += 1
