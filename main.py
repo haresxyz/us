@@ -38,7 +38,7 @@ usdc_contract = w3.eth.contract(address=usdc_address, abi=usdc_abi)
 lending_pool_contract = w3.eth.contract(address=lending_pool_proxy_address, abi=lending_pool_proxy_abi)
 
 GAS_PRICE = w3.to_wei(0.018, "gwei")  # 0.018 Gwei
-AMOUNT = w3.to_wei(800, "mwei")    # 1001.1 USDC (6 decimals)
+AMOUNT = w3.to_wei(850, "mwei")    # 1001.1 USDC (6 decimals)
 ON_BEHALF_OF = wallet.address
 REFERRAL_CODE = 0
 TO = wallet.address
